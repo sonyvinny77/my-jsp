@@ -1,79 +1,59 @@
 pipeline {
     agent any
 
-    environment {
-        IMAGE_NAME = "sony9014/regapp"
-        DEV_SERVER  = "ubuntu@44.206.233.83"
-        PROD_SERVER = "ubuntu@44.201.186.253"
+    tools {
+        maven 'Maven'
     }
 
     stages {
 
         stage('Checkout') {
             steps {
-                git 'https://github.com/sonyvinny77/maven.git'
+                checkout scm
             }
         }
 
-        stage('Build Maven') {
+        stage('Build & SonarQube Analysis') {
             steps {
-                sh 'mvn clean package'
-            }
-        }
-
-        stage('Create Dockerfile & Build Image') {
-            steps {
-                sh '''
-cat <<EOF > Dockerfile
-FROM tomcat:9-jdk11
-COPY webapp/target/webapp.war /usr/local/tomcat/webapps/
-EXPOSE 8080
-EOF
-
-docker build -t $IMAGE_NAME:$BUILD_NUMBER .
-docker tag $IMAGE_NAME:$BUILD_NUMBER $IMAGE_NAME:latest
-                '''
-            }
-        }
-
-        stage('Push Image to DockerHub') {
-            steps {
-                sh '''
-docker push $IMAGE_NAME:$BUILD_NUMBER
-docker push $IMAGE_NAME:latest
-                '''
-            }
-        }
-
-        stage('Deploy to DEV') {
-            steps {
-                sh """
-ssh -o StrictHostKeyChecking=no $DEV_SERVER '
-docker pull $IMAGE_NAME:latest
-docker stop dev-container || true
-docker rm dev-container || true
-docker run -d -p 8081:8080 --name dev-container $IMAGE_NAME:latest
-'
-                """
-            }
-        }
-
-        stage('Deploy to PROD') {
-            steps {
-                timeout(time: 2, unit: 'MINUTES') {
-                sh '''
-ssh -o StrictHostKeyChecking=no ubuntu@44.201.186.253 << EOF
-docker pull sony9014/regapp:latest
-docker stop prod-container || true
-docker rm prod-container || true
-docker run -d -p 8082:8080 --name prod-container sony9014/regapp:latest
-exit
-EOF
-'''
-
+                withSonarQubeEnv('SonarServer') {
+                    sh 'mvn clean verify sonar:sonar'
                 }
             }
         }
+
+        stage("Quality Gate") {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('Create Pull Request to Dev') {
+            when {
+                not {
+                    branch 'dev'
+                }
+            }
+            steps {
+                sh 'echo Branch is: $BRANCH_NAME'   
+
+                withCredentials([string(credentialsId: 'github-creds', variable: 'GITHUB_TOKEN')]) {
+                    sh """
+                        curl -X POST https://api.github.com/repos/jeevana1409/my-jsp/pulls \
+                        -H "Authorization: token \$GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        -d '{
+                            "title": "Auto PR: ${env.GIT_BRANCH} → dev",
+                            "head": "feature-branch-xyz",
+                            "base": "dev",
+                            "body": "Automatically created after successful SonarQube Quality Gate."
+                        }'
+                    """
+                }
+            }
+        }
+
     }
 }
 
