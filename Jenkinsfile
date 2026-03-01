@@ -38,7 +38,7 @@ pipeline {
             steps {
                 sh 'echo Branch is: $BRANCH_NAME'   
 
-                withCredentials([string(credentialsId: 'github-creds', variable: 'GITHUB_TOKEN')]) {
+                withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
                     sh """
                         curl -X POST https://api.github.com/repos/jeevana1409/my-jsp/pulls \
                         -H "Authorization: token \$GITHUB_TOKEN" \
