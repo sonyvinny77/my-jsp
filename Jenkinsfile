@@ -5,10 +5,6 @@ pipeline {
         maven 'Maven'
     }
 
-    environment {
-        DOCKER_IMAGE = "sony9014/myapp"
-    }
-
     stages {
 
         stage('Checkout') {
@@ -17,78 +13,49 @@ pipeline {
             }
         }
 
-        stage('Initialization - Version Check') {
+        stage('Build & SonarQube Analysis') {
             steps {
-                script {
-                    echo "Fetching tags..."
-                    sh "git fetch --tags"
-
-                    env.APP_VERSION = sh(
-                        script: "git describe --tags --abbrev=0",
-                        returnStdout: true
-                    ).trim()
-
-                    echo "Using version: ${APP_VERSION}"
+                withSonarQubeEnv('SonarServer') {
+                    sh 'mvn clean verify sonar:sonar'
                 }
             }
         }
 
-        stage('Build') {
+        stage("Quality Gate") {
             steps {
-                sh "mvn clean package"
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
             }
         }
 
-        stage('Test') {
-            steps {
-                sh "mvn test"
+        stage('Create Pull Request to Dev') {
+            when {
+                not {
+                    branch 'dev'
+                }
             }
-        }
-
-        stage('Docker Build & Push') {
             steps {
                 script {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'dockerhub-creds',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )]) {
+                    def branchName = env.BRANCH_NAME
+                    echo "Creating PR from ${branchName} to dev"
 
+                    withCredentials([string(credentialsId: 'github-token', variable: 'GITHUB_TOKEN')]) {
                         sh """
-                        echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
-                        docker build -t ${DOCKER_IMAGE}:${APP_VERSION} .
-                        docker push ${DOCKER_IMAGE}:${APP_VERSION}
-                        docker logout
+                        curl -X POST https://api.github.com/repos/sonyvinny77/my-jsp/pulls \
+                        -H "Authorization: token \$GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github+json" \
+                        -d '{
+                          "title": "Auto PR: ${branchName} → dev",
+                          "head": "${branchName}",
+                          "base": "dev",
+                          "body": "Created automatically by Jenkins."
+                        }'
                         """
                     }
                 }
             }
         }
 
-        stage('Deploy to Dev Server') {
-            steps {
-                script {
-                    sshagent(credentials: ['docker-server-ssh']) {
-                        sh """
-                        ssh -o StrictHostKeyChecking=no ec2-user@18.216.228.137 "
-                            docker pull ${DOCKER_IMAGE}:${APP_VERSION} &&
-                            docker stop app || true &&
-                            docker rm app || true &&
-                            docker run -d -p 8080:8080 --restart=always --name app ${DOCKER_IMAGE}:${APP_VERSION}
-                        "
-                        """
-                    }
-                }
-            }
-        }
-    }
-
-    post {
-        success {
-            echo "✅ DEV Deployment Successful!"
-        }
-        failure {
-            echo "❌ DEV Deployment Failed!"
-        }
     }
 }
