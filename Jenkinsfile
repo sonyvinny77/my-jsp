@@ -20,37 +20,37 @@ pipeline {
         stage('Initialization - Auto Version Increment') {
     steps {
         script {
-
             sh "git fetch --tags"
 
-            // Get latest tag or default
             def latestTag = sh(
-                script: "git describe --tags --abbrev=0 || echo v1.0.0",
+                script: "git describe --tags --abbrev=0",
                 returnStdout: true
             ).trim()
 
             echo "Latest Tag: ${latestTag}"
 
-            // Remove 'v'
-            def version = latestTag.replace("v", "")
-            def parts = version.tokenize(".")
+            def versionNumber = latestTag.replace("v", "").tokenize(".")
+            def major = versionNumber[0]
+            def minor = versionNumber[1]
+            def patch = versionNumber[2].toInteger() + 1
 
-            def major = parts[0].toInteger()
-            def minor = parts[1].toInteger()
-            def patch = parts[2].toInteger()
+            def newTag = "v${major}.${minor}.${patch}"
+            echo "New Version: ${newTag}"
 
-            // Increment patch
-            patch = patch + 1
+            sh "git tag ${newTag}"
 
-            env.APP_VERSION = "v${major}.${minor}.${patch}"
+            withCredentials([usernamePassword(
+                credentialsId: 'github-api-creds',
+                usernameVariable: 'GIT_USERNAME',
+                passwordVariable: 'GIT_PASSWORD'
+            )]) {
 
-            echo "New Version: ${APP_VERSION}"
-
-            // Create new tag
-            sh """
-               git tag ${APP_VERSION}
-               git push origin ${APP_VERSION}
-            """
+                sh """
+                git config user.name "${GIT_USERNAME}"
+                git config user.email "${GIT_USERNAME}@users.noreply.github.com"
+                git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/sonyvinny77/my-jsp.git ${newTag}
+                """
+            }
         }
     }
 }
