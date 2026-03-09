@@ -21,42 +21,33 @@ pipeline {
         }
 
         stage('Initialization - Auto Version Increment') {
-            steps {
-                script {
-                    sh "git fetch --tags"
+    steps {
+        script {
+            sh 'git fetch --tags'
+            def latestTag = sh(script: "git describe --tags --abbrev=0", returnStdout: true).trim()
+            echo "Latest Tag: ${latestTag}"
 
-                    def latestTag = sh(
-                        script: "git describe --tags --abbrev=0 || echo v0.0.0",
-                        returnStdout: true
-                    ).trim()
+            // Split version parts and increment patch
+            def (major, minor, patch) = latestTag.replaceAll('v','').split('\\.')
+            patch = (patch.toInteger() + 1).toString()
+            env.APP_VERSION = "v${major}.${minor}.${patch}"
+            echo "New Version: ${env.APP_VERSION}"
 
-                    echo "Latest Tag: ${latestTag}"
-
-                    def versionNumber = latestTag.replace("v", "").tokenize(".")
-                    def major = versionNumber[0]
-                    def minor = versionNumber[1]
-                    def patch = versionNumber[2].toInteger() + 1
-
-                    def newTag = "v${major}.${minor}.${patch}"
-                    echo "New Version: ${newTag}"
-                    env.APP_VERSION = newTag
-
-                    // Git tagging
-                    sh "git tag ${newTag}"
-                    withCredentials([usernamePassword(
-                        credentialsId: 'github-api-creds',
-                        usernameVariable: 'GIT_USERNAME',
-                        passwordVariable: 'GIT_PASSWORD'
-                    )]) {
-                        sh """
-                        git config user.name "${GIT_USERNAME}"
-                        git config user.email "${GIT_USERNAME}@users.noreply.github.com"
-                        git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/sonyvinny77/my-jsp.git ${newTag}
-                        """
-                    }
+            // Only create tag if it doesn't exist
+            def tagExists = sh(script: "git tag -l ${env.APP_VERSION}", returnStdout: true).trim()
+            if (!tagExists) {
+                sh "git tag ${env.APP_VERSION}"
+                withCredentials([usernamePassword(credentialsId: 'github-api-creds', 
+                                                 usernameVariable: 'GIT_USER', 
+                                                 passwordVariable: 'GIT_PASSWORD')]) {
+                    sh "git push https://${GIT_USER}:${GIT_PASSWORD}@github.com/sonyvinny77/my-jsp.git ${env.APP_VERSION}"
                 }
+            } else {
+                echo "Tag ${env.APP_VERSION} already exists, skipping creation."
             }
         }
+    }
+}
 
         stage('Build') {
             steps {
