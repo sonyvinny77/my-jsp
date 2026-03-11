@@ -78,7 +78,13 @@ pipeline {
                 sh "mvn test"
             }
         }
-
+        stage('Trivy Security Scan') {
+            steps {
+                sh '''
+                trivy fs --severity HIGH,CRITICAL --exit-code 1 .
+                '''
+            }
+        }
         stage('Docker Build & Push') {
             steps {
                 script {
