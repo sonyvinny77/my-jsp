@@ -92,7 +92,7 @@ pipeline {
                 script {
                     sshagent(credentials: ['docker-server-ssh']) {
                         sh """
-                        ssh -o StrictHostKeyChecking=no ec2-user@3.140.198.236 "
+                        ssh -o StrictHostKeyChecking=no ec2-user@3.17.154.242 "
                             docker pull ${DOCKER_IMAGE}:${APP_VERSION} &&
                             docker stop app || true &&
                             docker rm app || true &&
