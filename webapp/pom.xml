@@ -40,5 +40,12 @@
       <scope>provided</scope>
     </dependency>
   </dependencies>
-
+         
+    <distributionManagement>
+    <repository>
+        <id>nexus-creds</id>
+        <name>Nexus</name>
+        <url>http://172.31.25.37:8081/repository/my-maven-releases/</url>
+    </repository>
+</distributionManagement>
 </project>
