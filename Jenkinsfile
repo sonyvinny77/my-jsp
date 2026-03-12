@@ -18,58 +18,53 @@ pipeline {
         }
 
         stage('Initialization - Auto Version Increment') {
-    steps {
-        script {
-            sh "git fetch --tags"
+            steps {
+                script {
 
-            def latestTag = sh(
-                script: "git describe --tags --abbrev=0",
-                returnStdout: true
-            ).trim()
+                    sh 'git fetch --tags'
 
-            echo "Latest Tag: ${latestTag}"
+                    def latestTag = sh(
+                        script: "git describe --tags \$(git rev-list --tags --max-count=1) || echo v1.0.0",
+                        returnStdout: true
+                    ).trim()
 
-            def versionNumber = latestTag.replace("v", "").tokenize(".")
-            def major = versionNumber[0]
-            def minor = versionNumber[1]
-            def patch = versionNumber[2].toInteger() + 1
+                    echo "Latest Tag: ${latestTag}"
 
-            def newTag = "v${major}.${minor}.${patch}"
-            echo "New Version: ${newTag}"
+                    def version = latestTag.replace("v","").tokenize('.')
+                    def major = version[0]
+                    def minor = version[1]
+                    def patch = version[2].toInteger() + 1
 
-            env.APP_VERSION = newTag
+                    env.APP_VERSION = "v${major}.${minor}.${patch}"
 
-            // Check if tag already exists
-            def tagExists = sh(
-                script: "git tag -l ${newTag}",
-                returnStdout: true
-            ).trim()
+                    echo "New Version: ${env.APP_VERSION}"
 
-            if(tagExists) {
-                echo "Tag already exists: ${newTag}"
-            } else {
+                    withCredentials([usernamePassword(
+                        credentialsId: 'github-api-creds',
+                        usernameVariable: 'GIT_USERNAME',
+                        passwordVariable: 'GIT_PASSWORD'
+                    )]) {
 
-                sh "git tag ${newTag}"
+                        sh """
+                        git config user.name "jenkins"
+                        git config user.email "jenkins@local"
 
-                withCredentials([usernamePassword(
-                    credentialsId: 'github-api-creds',
-                    usernameVariable: 'GIT_USERNAME',
-                    passwordVariable: 'GIT_PASSWORD'
-                )]) {
+                        git tag ${APP_VERSION}
 
-                    sh """
-                    git config user.name "${GIT_USERNAME}"
-                    git config user.email "${GIT_USERNAME}@users.noreply.github.com"
-                    git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/sonyvinny77/my-jsp.git ${newTag}
-                    """
+                        git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/sonyvinny77/my-jsp.git ${APP_VERSION}
+                        """
+                    }
                 }
             }
         }
-    }
-}
-        stage('Build') {
+
+        stage('Build WAR') {
             steps {
                 sh "mvn clean package"
+
+                sh """
+                cp webapp/target/webapp.war webapp/target/webapp-${APP_VERSION}.war
+                """
             }
         }
 
@@ -78,11 +73,13 @@ pipeline {
                 sh "mvn test"
             }
         }
+
         stage('Upload WAR to Nexus') {
-    steps {
-        sh 'mvn clean deploy'
-    }
-}
+            steps {
+                sh "mvn deploy -DskipTests"
+            }
+        }
+
         stage('Trivy Security Scan') {
             steps {
                 sh '''
@@ -90,9 +87,11 @@ pipeline {
                 '''
             }
         }
+
         stage('Docker Build & Push') {
             steps {
                 script {
+
                     withCredentials([usernamePassword(
                         credentialsId: 'dockerhub-creds',
                         usernameVariable: 'DOCKER_USER',
@@ -101,8 +100,11 @@ pipeline {
 
                         sh """
                         echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
+
                         docker build --no-cache -t ${DOCKER_IMAGE}:${APP_VERSION} .
+
                         docker push ${DOCKER_IMAGE}:${APP_VERSION}
+
                         docker logout
                         """
                     }
@@ -114,36 +116,41 @@ pipeline {
             steps {
                 script {
                     sshagent(credentials: ['docker-server-ssh']) {
+
                         sh """
                         ssh -o StrictHostKeyChecking=no ec2-user@18.191.31.74 "
-                            docker pull ${DOCKER_IMAGE}:${APP_VERSION} &&
-                            docker stop app || true &&
-                            docker rm app || true &&
-                            docker run -d -p 8080:8080 --restart=always --name app ${DOCKER_IMAGE}:${APP_VERSION}
+                        docker pull ${DOCKER_IMAGE}:${APP_VERSION} &&
+                        docker stop app || true &&
+                        docker rm app || true &&
+                        docker run -d -p 8080:8080 --restart=always --name app ${DOCKER_IMAGE}:${APP_VERSION}
                         "
                         """
                     }
                 }
             }
         }
-        stage('Deploy to QA Server') {
-    steps {
-        input "Deploy to QA environment?"
 
-        script {
-            sshagent(credentials: ['docker-server-ssh']) {
-                sh """
-                ssh -o StrictHostKeyChecking=no ec2-user@3.140.199.196 "
-                docker pull ${DOCKER_IMAGE}:${APP_VERSION} &&
-                docker stop qa-app || true &&
-                docker rm qa-app || true &&
-                docker run -d -p 8080:8080 --name qa-app ${DOCKER_IMAGE}:${APP_VERSION}
-                "
-                """
+        stage('Deploy to QA Server') {
+            steps {
+
+                input "Deploy to QA environment?"
+
+                script {
+
+                    sshagent(credentials: ['docker-server-ssh']) {
+
+                        sh """
+                        ssh -o StrictHostKeyChecking=no ec2-user@3.140.199.196 "
+                        docker pull ${DOCKER_IMAGE}:${APP_VERSION} &&
+                        docker stop qa-app || true &&
+                        docker rm qa-app || true &&
+                        docker run -d -p 8080:8080 --name qa-app ${DOCKER_IMAGE}:${APP_VERSION}
+                        "
+                        """
+                    }
+                }
             }
         }
-    }
-}
     }
 
     post {
