@@ -16,48 +16,54 @@ pipeline {
                 checkout scm
             }
         }
-
         stage('Auto Version Increment') {
-            steps {
-                script {
+    steps {
+        script {
 
-                    sh 'git fetch --tags'
+            sh '''
+            git config --global --add safe.directory '*'
 
-                    def latestTag = sh(
-                        script: "git describe --tags \$(git rev-list --tags --max-count=1) 2>/dev/null || echo v1.0.0",
-                        returnStdout: true
-                    ).trim()
+            # Delete local tags to avoid conflicts
+            git tag -l | xargs -r git tag -d
 
-                    echo "Latest Tag: ${latestTag}"
+            # Fetch latest tags from remote
+            git fetch --tags
+            '''
 
-                    def version = latestTag.replace("v","").tokenize('.')
-                    def major = version[0]
-                    def minor = version[1]
-                    def patch = version[2].toInteger() + 1
+            def latestTag = sh(
+                script: "git describe --tags \$(git rev-list --tags --max-count=1) 2>/dev/null || echo v1.0.0",
+                returnStdout: true
+            ).trim()
 
-                    env.APP_VERSION = "v${major}.${minor}.${patch}"
+            echo "Latest Tag: ${latestTag}"
 
-                    echo "New Version: ${APP_VERSION}"
+            def version = latestTag.replace("v","").tokenize('.')
+            def major = version[0]
+            def minor = version[1]
+            def patch = version[2].toInteger() + 1
 
-                    withCredentials([usernamePassword(
-                        credentialsId: 'github-api-creds',
-                        usernameVariable: 'GIT_USERNAME',
-                        passwordVariable: 'GIT_PASSWORD'
-                    )]) {
+            env.APP_VERSION = "v${major}.${minor}.${patch}"
 
-                        sh """
-                        git config user.name "jenkins"
-                        git config user.email "jenkins@local"
+            echo "New Version: ${APP_VERSION}"
 
-                        git tag ${APP_VERSION}
+            withCredentials([usernamePassword(
+                credentialsId: 'github-api-creds',
+                usernameVariable: 'GIT_USERNAME',
+                passwordVariable: 'GIT_PASSWORD'
+            )]) {
 
-                        git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/sonyvinny77/my-jsp.git ${APP_VERSION}
-                        """
-                    }
-                }
+                sh """
+                git config user.name "jenkins"
+                git config user.email "jenkins@local"
+
+                git tag ${APP_VERSION}
+
+                git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/sonyvinny77/my-jsp.git ${APP_VERSION}
+                """
             }
         }
-
+    }
+}
         stage('Update Maven Version') {
             steps {
                 sh "mvn versions:set -DnewVersion=${APP_VERSION}"
