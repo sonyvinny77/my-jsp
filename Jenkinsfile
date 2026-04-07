@@ -42,7 +42,7 @@ pipeline {
 
                     withCredentials([string(credentialsId: 'github-api-creds', variable: 'GITHUB_TOKEN')]) {
                         sh """
-                        curl -X POST https://api.github.com/repos/sonyvinny77/my-jsp/pulls \
+                        curl -X POST https://api.github.com/repos/sonyvinny77/application-repo/pulls \
                         -H "Authorization: token \$GITHUB_TOKEN" \
                         -H "Accept: application/vnd.github+json" \
                         -d '{
