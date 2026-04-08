@@ -20,29 +20,38 @@
   </build>
 
   <dependencies>
+
+    <!-- JUnit (correct artifact, with version) -->
     <dependency>
       <groupId>junit</groupId>
-      <artifactId>junit-dep</artifactId>
+      <artifactId>junit</artifactId>
+      <version>4.13.2</version>
       <scope>test</scope>
     </dependency>
 
+    <!-- Hamcrest -->
     <dependency>
       <groupId>org.hamcrest</groupId>
       <artifactId>hamcrest-core</artifactId>
+      <version>2.2</version>
       <scope>test</scope>
     </dependency>
 
     <dependency>
       <groupId>org.hamcrest</groupId>
       <artifactId>hamcrest-library</artifactId>
+      <version>2.2</version>
       <scope>test</scope>
     </dependency>
 
+    <!-- Mockito -->
     <dependency>
       <groupId>org.mockito</groupId>
       <artifactId>mockito-core</artifactId>
+      <version>5.11.0</version>
       <scope>test</scope>
     </dependency>
+
   </dependencies>
 
 </project>
