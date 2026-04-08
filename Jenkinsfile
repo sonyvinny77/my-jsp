@@ -23,26 +23,28 @@ pipeline {
 
             sh '''
             git config --global --add safe.directory '*'
-
-            # Fetch latest tags from remote
             git fetch --tags
             '''
 
-            // Get latest tag properly (sorted)
+            // ✅ Only consider tags starting from v1.x.x (fresh start)
             def latestTag = sh(
-                script: "git tag --sort=-v:refname | head -n 1 || echo v1.0.0",
+                script: "git tag | grep '^v1\\.' | sort -V | tail -n 1 || echo v1.0.0",
                 returnStdout: true
             ).trim()
 
-            echo "Latest Tag: ${latestTag}"
+            echo "Filtered Latest Tag: ${latestTag}"
 
-            // Extract version
-            def version = latestTag.replace("v","").tokenize('.')
-            def major = version[0]
-            def minor = version[1]
-            def patch = version[2].toInteger() + 1
+            // If no valid tag found → start from v1.0.0
+            if (latestTag == "" || latestTag == "v1.0.0") {
+                env.APP_VERSION = "v1.0.0"
+            } else {
+                def version = latestTag.replace("v","").tokenize('.')
+                def major = version[0]
+                def minor = version[1]
+                def patch = version[2].toInteger() + 1
 
-            env.APP_VERSION = "v${major}.${minor}.${patch}"
+                env.APP_VERSION = "v${major}.${minor}.${patch}"
+            }
 
             echo "New Version: ${env.APP_VERSION}"
 
@@ -57,14 +59,13 @@ pipeline {
                 git config user.email "jenkins@local"
                 '''
 
-                // ✅ Check if tag already exists
                 def tagExists = sh(
                     script: "git tag -l ${env.APP_VERSION}",
                     returnStdout: true
                 ).trim()
 
                 if (tagExists) {
-                    echo "⚠️ Tag already exists. Skipping tag creation..."
+                    echo "⚠️ Tag already exists. Skipping..."
                 } else {
                     sh """
                     git tag ${APP_VERSION}
