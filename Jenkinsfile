@@ -7,7 +7,8 @@ pipeline {
 
     environment {
         DOCKER_IMAGE = "sony9014/mydeploy"
-        NEXUS_URL = "http://172.31.42.87:8081"
+        NEXUS_URL = "http://3.23.132.234:8081" // Updated to match your POM
+        APP_REPO = "sonyvinny77/application-repo.git"
     }
 
     stages {
@@ -62,7 +63,7 @@ pipeline {
                         if (!tagExists) {
                             sh """
                             git tag ${APP_VERSION}
-                            git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/sonyvinny77/application-repo.git ${APP_VERSION}
+                            git push https://${GIT_USERNAME}:${GIT_PASSWORD}@${APP_REPO} ${APP_VERSION}
                             """
                         } else {
                             echo "⚠️ Tag already exists. Skipping..."
@@ -78,9 +79,12 @@ pipeline {
             }
         }
 
-        stage('Build WAR') {
+        stage('Build Multi-Module Project') {
             steps {
-                sh "mvn clean install -DskipTests"
+                // Build both server and webapp modules
+                configFileProvider([configFile(fileId: 'maven-settings', variable: 'MAVEN_SETTINGS')]) {
+                    sh "mvn clean install -s $MAVEN_SETTINGS -DskipTests"
+                }
             }
         }
 
@@ -99,9 +103,8 @@ pipeline {
                 )]) {
                     configFileProvider([configFile(fileId: 'maven-settings', variable: 'MAVEN_SETTINGS')]) {
                         sh """
-                        mvn deploy -DskipTests -s $MAVEN_SETTINGS \
-                        -Dnexus.username=${NEXUS_USER} \
-                        -Dnexus.password=${NEXUS_PASS}
+                        mvn deploy -s $MAVEN_SETTINGS -DskipTests \
+                        -Dnexus.username=${NEXUS_USER} -Dnexus.password=${NEXUS_PASS}
                         """
                     }
                 }
