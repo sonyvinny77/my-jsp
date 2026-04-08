@@ -7,7 +7,7 @@
   <groupId>com.example.maven-project</groupId>
   <artifactId>maven-project</artifactId>
   <packaging>pom</packaging>
-  <version>1.0.40-SNAPSHOT</version>
+  <version>1.0.41-SNAPSHOT</version>
 
   <name>Maven Project</name>
   <description>Sample Maven project</description>
