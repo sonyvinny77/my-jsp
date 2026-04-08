@@ -21,34 +21,33 @@ pipeline {
         stage('Auto Version Increment') {
             steps {
                 script {
-                    // Make git directory safe and fetch tags
                     sh '''
                     git config --global --add safe.directory '*'
                     git fetch --tags
                     '''
 
-                    // Get latest v1.x.x tag
+                    // 🔥 CHANGE HERE (removed v)
                     def latestTag = sh(
-                        script: "git tag | grep '^v1\\.' | sort -V | tail -n 1 || echo v1.0.0",
+                        script: "git tag | grep '^1\\.' | sort -V | tail -n 1 || echo 1.0.0-SNAPSHOT",
                         returnStdout: true
                     ).trim()
 
                     echo "Filtered Latest Tag: ${latestTag}"
 
-                    // Compute new version
-                    if (latestTag == "" || latestTag == "v1.0.0") {
-                        env.APP_VERSION = "v1.0.0"
+                    // 🔥 CHANGE HERE (add SNAPSHOT)
+                    if (latestTag == "" || latestTag == "1.0.0-SNAPSHOT") {
+                        env.APP_VERSION = "1.0.0-SNAPSHOT"
                     } else {
-                        def version = latestTag.replace("v","").tokenize('.')
+                        def cleanTag = latestTag.replace("-SNAPSHOT","")
+                        def version = cleanTag.tokenize('.')
                         def major = version[0]
                         def minor = version[1]
                         def patch = version[2].toInteger() + 1
-                        env.APP_VERSION = "v${major}.${minor}.${patch}"
+                        env.APP_VERSION = "${major}.${minor}.${patch}-SNAPSHOT"
                     }
 
                     echo "New Version: ${env.APP_VERSION}"
 
-                    // Push tag safely
                     withCredentials([usernamePassword(
                         credentialsId: 'github-cred',
                         usernameVariable: 'GIT_USERNAME',
@@ -58,6 +57,7 @@ pipeline {
                         git config user.name "jenkins"
                         git config user.email "jenkins@local"
                         '''
+
                         def tagExists = sh(
                             script: "git tag -l ${env.APP_VERSION}",
                             returnStdout: true
