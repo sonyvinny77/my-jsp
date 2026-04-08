@@ -8,7 +8,7 @@ pipeline {
     environment {
         DOCKER_IMAGE = "sony9014/mydeploy"
         NEXUS_URL = "http://3.23.132.234:8081" // Updated to match your POM
-        APP_REPO = "sonyvinny77/application-repo.git"
+        APP_REPO = "https://github.com/sonyvinny77/application-repo.git"
     }
 
     stages {
