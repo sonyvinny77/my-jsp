@@ -31,7 +31,7 @@
     <!-- SNAPSHOT (DEV) -->
     <snapshotRepository>
       <id>nexus</id>
-      <url>http://172.31.42.87:8081/repository/maven-dev/</url>
+      <url>http://3.23.132.234:8081/repository/maven-dev/</url>
     </snapshotRepository>
   </distributionManagement>
 
@@ -61,7 +61,7 @@
         <artifactId>maven-deploy-plugin</artifactId>
         <version>2.7</version>
         <configuration>
-          <altDeploymentRepository>dev::default::http://172.31.42.87:8081/repository/maven-dev/</altDeploymentRepository>
+          <altDeploymentRepository>dev::default::http://3.23.132.234:8081/repository/maven-dev/</altDeploymentRepository>
         </configuration>
       </plugin>
 
