@@ -95,10 +95,20 @@ pipeline {
         }
 
         stage('Upload Artifact to Nexus') {
-            steps {
-                sh "mvn deploy -DskipTests"
-            }
+    steps {
+        withCredentials([usernamePassword(
+            credentialsId: 'nexus-creds',
+            usernameVariable: 'NEXUS_USER',
+            passwordVariable: 'NEXUS_PASS'
+        )]) {
+            sh '''
+            mvn deploy -DskipTests \
+              -Dnexus.username=$NEXUS_USER \
+              -Dnexus.password=$NEXUS_PASS
+            '''
         }
+    }
+}
 
         stage('Security Scan') {
             steps {
