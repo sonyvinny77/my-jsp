@@ -1,10 +1,12 @@
 pipeline {
     agent any
 
+    tools {
+        maven 'Maven'
+    }
+
     environment {
-        NEXUS_URL = "http://172.31.42.87:8081"
-        GROUP_ID = "com.example.maven-project"
-        ARTIFACT_ID = "webapp"
+        DOCKER_IMAGE = "sony9014/mydeploy"
     }
 
     stages {
@@ -15,102 +17,114 @@ pipeline {
             }
         }
 
-        stage('Get Snapshot Version') {
+        stage('Set Release Version') {
             steps {
                 script {
-                    def version = sh(
-                        script: "mvn help:evaluate -Dexpression=project.version -q -DforceStdout",
+
+                    sh 'git fetch --tags'
+
+                    def latestTag = sh(
+                        script: "git describe --tags \$(git rev-list --tags --max-count=1) 2>/dev/null || echo v1.0.0",
                         returnStdout: true
                     ).trim()
 
-                    echo "Current Version: ${version}"
+                    echo "Latest Tag: ${latestTag}"
 
-                    if (!version.contains("SNAPSHOT")) {
-                        error "❌ Not a SNAPSHOT version!"
+                    def version = latestTag.replace("v","").tokenize('.')
+                    def major = version[0]
+                    def minor = version[1].toInteger() + 1
+                    def patch = 0
+
+                    env.APP_VERSION = "v${major}.${minor}.${patch}"
+
+                    echo "Release Version: ${APP_VERSION}"
+
+                    withCredentials([usernamePassword(
+                        credentialsId: 'github-api-creds',
+                        usernameVariable: 'GIT_USERNAME',
+                        passwordVariable: 'GIT_PASSWORD'
+                    )]) {
+
+                        sh """
+                        git config user.name "jenkins"
+                        git config user.email "jenkins@local"
+
+                        git tag ${APP_VERSION}
+
+                        git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/sonyvinny77/application-repo.git ${APP_VERSION}
+                        """
                     }
-
-                    env.SNAPSHOT_VERSION = version
-                    env.RELEASE_VERSION = version.replace("-SNAPSHOT", "")
-
-                    echo "Snapshot: ${SNAPSHOT_VERSION}"
-                    echo "Release: ${RELEASE_VERSION}"
                 }
             }
         }
 
-        stage('Download Artifact from SNAPSHOT Repo') {
+        stage('Update Maven Version') {
             steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'nexus-creds',
-                    usernameVariable: 'NEXUS_USER',
-                    passwordVariable: 'NEXUS_PASS'
-                )]) {
+                sh "mvn versions:set -DnewVersion=${APP_VERSION}"
+            }
+        }
 
-                    sh '''
-                    curl -u $NEXUS_USER:$NEXUS_PASS -o ${ARTIFACT_ID}.war \
-                    "$NEXUS_URL/service/rest/v1/search/assets/download?repository=maven-dev&group=${GROUP_ID}&name=${ARTIFACT_ID}&version=${SNAPSHOT_VERSION}"
+        stage('Build & Test') {
+            steps {
+                sh "mvn clean install"
+            }
+        }
 
-                    curl -u $NEXUS_USER:$NEXUS_PASS -o ${ARTIFACT_ID}.pom \
-                    "$NEXUS_URL/service/rest/v1/search/assets/download?repository=maven-dev&group=${GROUP_ID}&name=${ARTIFACT_ID}&version=${SNAPSHOT_VERSION}&extension=pom"
-                    '''
+        stage('Security Scan') {
+            steps {
+                sh "trivy fs --severity HIGH,CRITICAL --exit-code 1 ."
+            }
+        }
+
+        stage('Upload Artifact to Nexus') {
+            steps {
+                sh "mvn deploy -DskipTests"
+            }
+        }
+
+        stage('Docker Build & Push') {
+            steps {
+                script {
+
+                    withCredentials([usernamePassword(
+                        credentialsId: 'dockerhub-creds',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    )]) {
+
+                        sh """
+                        echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
+
+                        docker build -t ${DOCKER_IMAGE}:${APP_VERSION} .
+
+                        docker push ${DOCKER_IMAGE}:${APP_VERSION}
+
+                        docker logout
+                        """
+                    }
                 }
             }
         }
 
-        stage('Upload to RELEASE Repo') {
+        stage('Trigger QA Deployment') {
             steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'nexus-creds',
-                    usernameVariable: 'NEXUS_USER',
-                    passwordVariable: 'NEXUS_PASS'
-                )]) {
-
-                    sh '''
-                    GROUP_PATH=$(echo $GROUP_ID | tr '.' '/')
-
-                    curl -u $NEXUS_USER:$NEXUS_PASS --upload-file ${ARTIFACT_ID}.war \
-                    $NEXUS_URL/repository/maven-releases/$GROUP_PATH/$ARTIFACT_ID/$RELEASE_VERSION/${ARTIFACT_ID}-${RELEASE_VERSION}.war
-
-                    curl -u $NEXUS_USER:$NEXUS_PASS --upload-file ${ARTIFACT_ID}.pom \
-                    $NEXUS_URL/repository/maven-releases/$GROUP_PATH/$ARTIFACT_ID/$RELEASE_VERSION/${ARTIFACT_ID}-${RELEASE_VERSION}.pom
-                    '''
+                script {
+                    build job: 'deployment-qa-pipeline',
+                    parameters: [
+                        string(name: 'APP_VERSION', value: "${APP_VERSION}")
+                    ]
                 }
-            }
-        }
-
-        stage('Git Tag Release') {
-            steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'github-cred',
-                    usernameVariable: 'GIT_USERNAME',
-                    passwordVariable: 'GIT_PASSWORD'
-                )]) {
-
-                    sh '''
-                    git config user.name "jenkins"
-                    git config user.email "jenkins@local"
-                    git tag ${RELEASE_VERSION}
-                    git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/sonyvinny77/application-repo.git ${RELEASE_VERSION}
-                    '''
-                }
-            }
-        }
-
-        stage('Trigger Master Pipeline') {
-            steps {
-                build job: 'application-repo/master', wait: false, parameters: [
-                    string(name: 'VERSION', value: "${RELEASE_VERSION}")
-                ]
             }
         }
     }
 
     post {
         success {
-            echo "✅ Artifact Promoted Successfully (NO REBUILD)"
+            echo "✅ Release Pipeline Completed Successfully"
         }
+
         failure {
-            echo "❌ Promotion Failed"
+            echo "❌ Release Pipeline Failed"
         }
     }
 }
