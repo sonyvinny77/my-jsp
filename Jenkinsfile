@@ -2,12 +2,11 @@ pipeline {
     agent any
 
     tools {
-        maven 'maven'
+        maven 'Maven'
     }
 
     environment {
         DOCKER_IMAGE = "sony9014/mydeploy"
-        NEXUS_URL = "http://172.31.42.87:8081"
     }
 
     stages {
@@ -21,56 +20,39 @@ pipeline {
         stage('Auto Version Increment') {
             steps {
                 script {
-                    sh '''
-                    git config --global --add safe.directory '*'
-                    git fetch --tags
-                    '''
 
-                    // 🔥 CHANGE HERE (removed v)
+                    sh 'git fetch --tags'
+
                     def latestTag = sh(
-                        script: "git tag | grep '^1\\.' | sort -V | tail -n 1 || echo 1.0.0-SNAPSHOT",
+                        script: "git describe --tags \$(git rev-list --tags --max-count=1) 2>/dev/null || echo v1.0.0",
                         returnStdout: true
                     ).trim()
 
-                    echo "Filtered Latest Tag: ${latestTag}"
+                    echo "Latest Tag: ${latestTag}"
 
-                    // 🔥 CHANGE HERE (add SNAPSHOT)
-                    if (latestTag == "" || latestTag == "1.0.0-SNAPSHOT") {
-                        env.APP_VERSION = "1.0.0-SNAPSHOT"
-                    } else {
-                        def cleanTag = latestTag.replace("-SNAPSHOT","")
-                        def version = cleanTag.tokenize('.')
-                        def major = version[0]
-                        def minor = version[1]
-                        def patch = version[2].toInteger() + 1
-                        env.APP_VERSION = "${major}.${minor}.${patch}-SNAPSHOT"
-                    }
+                    def version = latestTag.replace("v","").tokenize('.')
+                    def major = version[0]
+                    def minor = version[1]
+                    def patch = version[2].toInteger() + 1
 
-                    echo "New Version: ${env.APP_VERSION}"
+                    env.APP_VERSION = "v${major}.${minor}.${patch}"
+
+                    echo "New Version: ${APP_VERSION}"
 
                     withCredentials([usernamePassword(
-                        credentialsId: 'github-cred',
+                        credentialsId: 'github-api-creds',
                         usernameVariable: 'GIT_USERNAME',
                         passwordVariable: 'GIT_PASSWORD'
                     )]) {
-                        sh '''
+
+                        sh """
                         git config user.name "jenkins"
                         git config user.email "jenkins@local"
-                        '''
 
-                        def tagExists = sh(
-                            script: "git tag -l ${env.APP_VERSION}",
-                            returnStdout: true
-                        ).trim()
+                        git tag ${APP_VERSION}
 
-                        if (!tagExists) {
-                            sh """
-                            git tag ${APP_VERSION}
-                            git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/sonyvinny77/application-repo.git ${APP_VERSION}
-                            """
-                        } else {
-                            echo "⚠️ Tag already exists. Skipping..."
-                        }
+                        git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/sonyvinny77/application-repo.git ${APP_VERSION}
+                        """
                     }
                 }
             }
@@ -78,13 +60,13 @@ pipeline {
 
         stage('Update Maven Version') {
             steps {
-                sh "mvn -N versions:set -DnewVersion=${APP_VERSION}"
+                sh "mvn versions:set -DnewVersion=${APP_VERSION}"
             }
         }
 
         stage('Build WAR') {
             steps {
-                sh "mvn clean install -DskipTests"
+                sh "mvn clean package -DskipTests"
             }
         }
 
@@ -96,19 +78,7 @@ pipeline {
 
         stage('Upload Artifact to Nexus') {
             steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'nexus-creds',
-                    usernameVariable: 'NEXUS_USER',
-                    passwordVariable: 'NEXUS_PASS'
-                )]) {
-                    configFileProvider([configFile(fileId: 'maven-settings', variable: 'MAVEN_SETTINGS')]) {
-                        sh """
-                        mvn deploy -DskipTests -s $MAVEN_SETTINGS \
-                        -Dnexus.username=${NEXUS_USER} \
-                        -Dnexus.password=${NEXUS_PASS}
-                        """
-                    }
-                }
+                sh "mvn deploy -DskipTests"
             }
         }
 
@@ -121,18 +91,34 @@ pipeline {
         stage('Docker Build & Push') {
             steps {
                 script {
+
                     withCredentials([usernamePassword(
                         credentialsId: 'dockerhub-creds',
                         usernameVariable: 'DOCKER_USER',
                         passwordVariable: 'DOCKER_PASS'
                     )]) {
+
                         sh """
                         echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
+
                         docker build -t ${DOCKER_IMAGE}:${APP_VERSION} .
+
                         docker push ${DOCKER_IMAGE}:${APP_VERSION}
+
                         docker logout
                         """
                     }
+                }
+            }
+        }
+
+        stage('Trigger Deployment Repo - Dev') {
+            steps {
+                script {
+                    build job: 'deployment-dev-pipeline',
+                    parameters: [
+                        string(name: 'APP_VERSION', value: "${APP_VERSION}")
+                    ]
                 }
             }
         }
@@ -140,11 +126,11 @@ pipeline {
 
     post {
         success {
-            echo "✅ Pipeline Completed Successfully"
+            echo "✅ Dev Pipeline Completed Successfully"
         }
 
         failure {
-            echo "❌ Pipeline Failed"
+            echo "❌ Dev Pipeline Failed"
         }
     }
 }
