@@ -1,29 +1,38 @@
 pipeline {
     agent any
 
-    parameters {
-        string(name: 'APP_VERSION', description: 'Version to promote to QA (e.g. v1.0.5)')
-    }
-
     environment {
         DOCKER_IMAGE = "sony9014/mydeploy"
     }
 
     stages {
 
-        stage('Validate Version') {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Determine Latest Version') {
             steps {
                 script {
-                    if (!params.APP_VERSION) {
-                        error "APP_VERSION is required!"
+                    // Get latest git tag
+                    def version = sh(
+                        script: "git describe --tags \$(git rev-list --tags --max-count=1)",
+                        returnStdout: true
+                    ).trim()
+
+                    if (!version) {
+                        error "No tags found! Please make sure Dev build created a tag."
                     }
 
-                    echo "Promoting Version: ${params.APP_VERSION}"
+                    env.APP_VERSION = version
+                    echo "Promoting Version: ${env.APP_VERSION}"
                 }
             }
         }
 
-        stage('Verify Image Exists (Optional but Recommended)') {
+        stage('Verify Docker Image Exists') {
             steps {
                 script {
                     withCredentials([usernamePassword(
@@ -31,10 +40,9 @@ pipeline {
                         usernameVariable: 'DOCKER_USER',
                         passwordVariable: 'DOCKER_PASS'
                     )]) {
-
                         sh """
                             echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
-                            docker pull ${DOCKER_IMAGE}:${params.APP_VERSION}
+                            docker pull ${DOCKER_IMAGE}:${APP_VERSION}
                             docker logout
                         """
                     }
@@ -47,7 +55,7 @@ pipeline {
                 script {
                     build job: 'deployment-repo/qa',
                     parameters: [
-                        string(name: 'APP_VERSION', value: "${params.APP_VERSION}")
+                        string(name: 'APP_VERSION', value: "${APP_VERSION}")
                     ]
                 }
             }
