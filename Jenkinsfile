@@ -1,13 +1,10 @@
 pipeline {
     agent any
 
-    tools {
-        maven 'maven'
-    }
-
     environment {
-        DOCKER_IMAGE = "sony9014/mydeploy"
         NEXUS_URL = "http://172.31.42.87:8081"
+        GROUP_ID = "com.example.maven-project"
+        ARTIFACT_ID = "webapp"
     }
 
     stages {
@@ -29,97 +26,91 @@ pipeline {
                     echo "Current Version: ${version}"
 
                     if (!version.contains("SNAPSHOT")) {
-                        error "❌ Not a SNAPSHOT version. Release should come from SNAPSHOT!"
+                        error "❌ Not a SNAPSHOT version!"
                     }
 
+                    env.SNAPSHOT_VERSION = version
                     env.RELEASE_VERSION = version.replace("-SNAPSHOT", "")
-                    echo "Release Version: ${env.RELEASE_VERSION}"
+
+                    echo "Snapshot: ${SNAPSHOT_VERSION}"
+                    echo "Release: ${RELEASE_VERSION}"
                 }
             }
         }
 
-        stage('Set Release Version') {
-            steps {
-                sh "mvn -N versions:set -DnewVersion=${RELEASE_VERSION}"
-            }
-        }
-
-        stage('Build Artifact') {
-            steps {
-                sh "mvn clean install -DskipTests"
-            }
-        }
-
-        stage('Run Tests') {
-            steps {
-                sh "mvn test"
-            }
-        }
-
-        stage('Upload to Nexus (Release Repo)') {
+        stage('Download Artifact from SNAPSHOT Repo') {
             steps {
                 withCredentials([usernamePassword(
                     credentialsId: 'nexus-creds',
                     usernameVariable: 'NEXUS_USER',
                     passwordVariable: 'NEXUS_PASS'
                 )]) {
-                    configFileProvider([configFile(fileId: 'maven-settings', variable: 'MAVEN_SETTINGS')]) {
-                        sh """
-                        mvn deploy -DskipTests -s $MAVEN_SETTINGS \
-                        -Dnexus.username=${NEXUS_USER} \
-                        -Dnexus.password=${NEXUS_PASS}
-                        """
-                    }
+
+                    sh '''
+                    curl -u $NEXUS_USER:$NEXUS_PASS -o ${ARTIFACT_ID}.war \
+                    "$NEXUS_URL/service/rest/v1/search/assets/download?repository=maven-dev&group=${GROUP_ID}&name=${ARTIFACT_ID}&version=${SNAPSHOT_VERSION}"
+
+                    curl -u $NEXUS_USER:$NEXUS_PASS -o ${ARTIFACT_ID}.pom \
+                    "$NEXUS_URL/service/rest/v1/search/assets/download?repository=maven-dev&group=${GROUP_ID}&name=${ARTIFACT_ID}&version=${SNAPSHOT_VERSION}&extension=pom"
+                    '''
+                }
+            }
+        }
+
+        stage('Upload to RELEASE Repo') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'nexus-creds',
+                    usernameVariable: 'NEXUS_USER',
+                    passwordVariable: 'NEXUS_PASS'
+                )]) {
+
+                    sh '''
+                    GROUP_PATH=$(echo $GROUP_ID | tr '.' '/')
+
+                    curl -u $NEXUS_USER:$NEXUS_PASS --upload-file ${ARTIFACT_ID}.war \
+                    $NEXUS_URL/repository/maven-releases/$GROUP_PATH/$ARTIFACT_ID/$RELEASE_VERSION/${ARTIFACT_ID}-${RELEASE_VERSION}.war
+
+                    curl -u $NEXUS_USER:$NEXUS_PASS --upload-file ${ARTIFACT_ID}.pom \
+                    $NEXUS_URL/repository/maven-releases/$GROUP_PATH/$ARTIFACT_ID/$RELEASE_VERSION/${ARTIFACT_ID}-${RELEASE_VERSION}.pom
+                    '''
                 }
             }
         }
 
         stage('Git Tag Release') {
             steps {
-                script {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'github-cred',
-                        usernameVariable: 'GIT_USERNAME',
-                        passwordVariable: 'GIT_PASSWORD'
-                    )]) {
-                        sh '''
-                        git config user.name "jenkins"
-                        git config user.email "jenkins@local"
-                        '''
+                withCredentials([usernamePassword(
+                    credentialsId: 'github-cred',
+                    usernameVariable: 'GIT_USERNAME',
+                    passwordVariable: 'GIT_PASSWORD'
+                )]) {
 
-                        sh """
-                        git tag ${RELEASE_VERSION}
-                        git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/sonyvinny77/application-repo.git ${RELEASE_VERSION}
-                        """
-                    }
+                    sh '''
+                    git config user.name "jenkins"
+                    git config user.email "jenkins@local"
+                    git tag ${RELEASE_VERSION}
+                    git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/sonyvinny77/application-repo.git ${RELEASE_VERSION}
+                    '''
                 }
             }
         }
 
-        stage('Docker Build & Push (Release Image)') {
+        stage('Trigger Master Pipeline') {
             steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'dockerhub-creds',
-                    usernameVariable: 'DOCKER_USER',
-                    passwordVariable: 'DOCKER_PASS'
-                )]) {
-                    sh """
-                    echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
-                    docker build -t ${DOCKER_IMAGE}:${RELEASE_VERSION} .
-                    docker push ${DOCKER_IMAGE}:${RELEASE_VERSION}
-                    docker logout
-                    """
-                }
+                build job: 'application-repo/master', wait: false, parameters: [
+                    string(name: 'VERSION', value: "${RELEASE_VERSION}")
+                ]
             }
         }
     }
 
     post {
         success {
-            echo "✅ Release Pipeline Successful"
+            echo "✅ Artifact Promoted Successfully (NO REBUILD)"
         }
         failure {
-            echo "❌ Release Pipeline Failed"
+            echo "❌ Promotion Failed"
         }
     }
 }
