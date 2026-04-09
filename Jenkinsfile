@@ -40,7 +40,7 @@ pipeline {
                     echo "New Version: ${APP_VERSION}"
 
                     withCredentials([usernamePassword(
-                        credentialsId: 'github-api-creds',
+                        credentialsId: 'github-cred',
                         usernameVariable: 'GIT_USERNAME',
                         passwordVariable: 'GIT_PASSWORD'
                     )]) {
