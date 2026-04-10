@@ -13,7 +13,7 @@ pipeline {
             }
         }
 
-        stage('Determine Latest Docker Version') {
+        stage('Get Latest Docker Version') {
             steps {
                 script {
                     withCredentials([usernamePassword(
@@ -22,15 +22,9 @@ pipeline {
                         passwordVariable: 'DOCKER_PASS'
                     )]) {
 
-                        // Login and get latest tag from Docker
+                        // Fetch ONLY version (no docker login noise)
                         env.APP_VERSION = sh(
                             script: """
-                                echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin
-                                # List all tags, sort, pick latest (lexicographic order works if your tags are semantic)
-                                docker pull ${DOCKER_IMAGE}:latest || true
-                                docker logout
-                                
-                                # Optional: if you push semantic tags, get the latest tag via API
                                 curl -s -u \$DOCKER_USER:\$DOCKER_PASS https://hub.docker.com/v2/repositories/${DOCKER_IMAGE}/tags?page_size=100 | \
                                 jq -r '.results[].name' | sort -V | tail -n1
                             """,
@@ -47,10 +41,11 @@ pipeline {
             }
         }
 
-        stage('Trigger Deployment Repo - QA') {
+        stage('Trigger QA Deployment') {
             steps {
                 script {
                     build job: 'deployment-repo/qa',
+                    propagate: true,   // change to false if you don’t want failure to affect this pipeline
                     parameters: [
                         string(name: 'APP_VERSION', value: "${env.APP_VERSION}")
                     ]
