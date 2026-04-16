@@ -56,7 +56,23 @@ pipeline {
                 sh "trivy fs --severity HIGH,CRITICAL --exit-code 1 ."
             }
         }
+        stage('Debug Files') {
+    steps {
+        sh '''
+        echo "==== CURRENT DIRECTORY ===="
+        pwd
 
+        echo "==== LIST ROOT FILES ===="
+        ls -l
+
+        echo "==== CHECK WAR FILE ===="
+        ls -l webapp/target || true
+
+        echo "==== CHECK .dockerignore ===="
+        cat .dockerignore || true
+        '''
+    }
+}
         stage('Docker Build & Push') {
             steps {
                 script {
