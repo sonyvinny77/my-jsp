@@ -92,14 +92,12 @@ pipeline {
         }
         stage('Manual Approval for PreProd') {
     steps {
-        script {
-            timeout(time: 10, unit: 'MINUTES') {
-                input(
-                    message: "Approve deployment to PreProd?",
-                    ok: "Deploy",
-                    submitter: "sony"   // your Jenkins username
-                )
-            }
+        timeout(time: 10, unit: 'MINUTES') {
+            input(
+                message: 'Approve deployment to PreProd?',
+                ok: 'Deploy',
+                submitter: 'sony'
+            )
         }
     }
 }        
