@@ -90,6 +90,21 @@ pipeline {
                 }
             }
         }
+        stage('Manual Approval for PreProd') {
+    steps {
+        input message: "Approve deployment to PreProd?", ok: "Deploy"
+    }
+}
+        stage('Trigger Deployment Repo - PreProd') {
+    steps {
+        script {
+            build job: 'deployment-repo/preprod',
+            parameters: [
+                string(name: 'APP_VERSION', value: "${APP_VERSION}")
+            ]
+        }
+    }
+}
     }
 
     post {
