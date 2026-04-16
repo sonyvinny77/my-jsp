@@ -93,15 +93,16 @@ pipeline {
         stage('Manual Approval for PreProd') {
     steps {
         script {
-            def userInput = input(
-                id: 'PreProdApproval', 
-                message: 'Approve deployment to PreProd?',
-                ok: 'Deploy'
-            )
-            echo "User approved deployment"
+            timeout(time: 10, unit: 'MINUTES') {
+                input(
+                    message: "Approve deployment to PreProd?",
+                    ok: "Deploy",
+                    submitter: "sony"   // your Jenkins username
+                )
+            }
         }
     }
-}
+}        
         stage('Trigger Deployment Repo - PreProd') {
     steps {
         script {
